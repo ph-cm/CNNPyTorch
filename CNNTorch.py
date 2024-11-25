@@ -4,6 +4,8 @@ import torchvision
 from torchvision.transforms import ToTensor
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
+from torchinfo import summary
+import torch.optim as optim
 
 # Load MNIST using pytorch
 def load_mnist(batch_size=128):
@@ -54,3 +56,113 @@ apply_filter_to_dataset(
     kernel=torch.tensor([[-1., -1., -1.], [0., 0., 0.], [1., 1., 1.]]),
     title="Horizontal edge filter"
 )
+
+#Convolutional layers
+class OneConv(nn.Module):
+    def __init__(self):
+        super(OneConv,self).__init__()
+        self.conv = nn.Conv2d(in_channels=1,out_channels=9,kernel_size=(5,5))
+        self.flatten = nn.Flatten()
+        self.fc = nn.Linear(5184,10)
+        
+    def forward(self, x):
+        x = nn.functional.relu(self.conv(x))
+        x = self.flatten(x)
+        x = nn.functional.log_softmax(self.fc(x),dim=1)
+        return x
+net = OneConv()
+
+summary(net,input_size=(1,1,28,28))
+
+def train(model, train_loader, test_loader, epoch=5, device="cpu"):
+    # Config the model to train
+    model.to(device)
+    criterion = nn.CrossEntropyLoss()  # Loss function
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    
+    history = {"train_loss": [], "test_loss": [], "train_acc": [], "test_acc": []}
+    
+    for ep in range(epoch):
+        # Train
+        model.train()
+        running_loss, correct, total = 0.0, 0, 0
+        
+        for inputs, labels in train_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            running_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += labels.size(0)
+            correct += predicted.eq(labels).sum().item()
+        
+        train_loss = running_loss / len(train_loader)
+        train_acc = 100. * correct / total
+        
+        # Rate
+        model.eval()
+        test_loss, correct, total = 0.0, 0, 0
+        with torch.no_grad():
+            for inputs, labels in test_loader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+                test_loss += loss.item()
+                _, predicted = outputs.max(1)
+                total += labels.size(0)
+                correct += predicted.eq(labels).sum().item()
+        
+        test_loss /= len(test_loader)
+        test_acc = 100. * correct / total
+        
+        # Saving data
+        history["train_loss"].append(train_loss)
+        history["test_loss"].append(test_loss)
+        history["train_acc"].append(train_acc)
+        history["test_acc"].append(test_acc)
+        
+        print(f"Epoch {ep+1}/{epoch}")
+        print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
+        print(f"Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%")
+    
+    return history
+
+def plot_results(history):
+    epochs = range(1, len(history["train_loss"]) + 1)
+    
+    # Plot loss
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, history["train_loss"], label="Train Loss")
+    plt.plot(epochs, history["test_loss"], label="Test Loss")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.title("Loss Curve")
+    plt.legend()
+    
+    # Plot accuracy
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs, history["train_acc"], label="Train Accuracy")
+    plt.plot(epochs, history["test_acc"], label="Test Accuracy")
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy (%)")
+    plt.title("Accuracy Curve")
+    plt.legend()
+    
+    plt.show()
+    
+history = train(net,train_loader,test_loader,epoch=5)
+plot_results(history)
+
+fig, ax = plt.subplots(1,9)
+with torch.no_grad():
+    p = next(net.conv.parameters())
+    for i,x in enumerate(p):
+        ax[i].imshow(x.detach().cpu()[0,...])
+        ax[i].axis('off')
+    plt.show()
